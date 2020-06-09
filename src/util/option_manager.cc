@@ -635,6 +635,8 @@ void OptionManager::AddStereoFusionOptions() {
                               &stereo_fusion->max_image_size);
   AddAndRegisterDefaultOption("StereoFusion.min_num_pixels",
                               &stereo_fusion->min_num_pixels);
+  AddAndRegisterDefaultOption("StereoFusion.min_num_pixels_ps",
+                              &stereo_fusion->min_num_pixels_ps);
   AddAndRegisterDefaultOption("StereoFusion.max_num_pixels",
                               &stereo_fusion->max_num_pixels);
   AddAndRegisterDefaultOption("StereoFusion.max_traversal_depth",

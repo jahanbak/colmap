@@ -35,6 +35,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <numeric>
 
 #include "util/endian.h"
 #include "util/logging.h"
@@ -54,6 +55,7 @@ class Mat {
 
   size_t GetNumBytes() const;
 
+  T GetRangeAvg(const size_t row_min, const size_t row_max, const size_t col_min, const size_t col_max, const size_t slice = 0) const;
   T Get(const size_t row, const size_t col, const size_t slice = 0) const;
   void GetSlice(const size_t row, const size_t col, T* values) const;
   T* GetPtr();
@@ -113,6 +115,15 @@ size_t Mat<T>::GetNumBytes() const {
 template <typename T>
 T Mat<T>::Get(const size_t row, const size_t col, const size_t slice) const {
   return data_.at(slice * width_ * height_ + row * width_ + col);
+}
+
+template <typename T>
+T Mat<T>::GetRangeAvg(const size_t row_min, const size_t row_max, const size_t col_min, const size_t col_max, const size_t slice) const {
+  T res = T(0);
+  size_t offset = slice * width_ * height_;
+  for (size_t row=row_min; row<=row_max; row++)
+    res += std::accumulate(data_.begin()+offset+row*width_+col_min,data_.begin()+offset+row*width_+col_max);
+  return res;
 }
 
 template <typename T>

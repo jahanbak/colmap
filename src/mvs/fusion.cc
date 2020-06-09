@@ -33,9 +33,31 @@
 
 #include "util/misc.h"
 
+#include <numeric>
+
 namespace colmap {
 namespace mvs {
 namespace internal {
+
+template <typename T>
+float WeightedAverage(std::vector<T>* elems, std::vector<float>* weights, const float& sum) {
+  CHECK(!elems->empty());
+  return static_cast<float>(std::inner_product(elems->begin(), elems->end(), weights->begin(), 0.0f) / sum);
+}
+
+template <typename T>
+float WeightedMin(std::vector<T>* elems, std::vector<float>* weights) {
+  CHECK(!elems->empty());
+  int id = std::distance(weights->begin(), std::min_element(weights->begin(), weights->end()));
+  return static_cast<float>(elems->at(id));
+}
+
+template <typename T>
+float WeightedMax(std::vector<T>* elems, std::vector<float>* weights) {
+  CHECK(!elems->empty());
+  int id = std::distance(weights->begin(), std::max_element(weights->begin(), weights->end()));
+  return static_cast<float>(elems->at(id));
+}
 
 template <typename T>
 float Median(std::vector<T>* elems) {
@@ -85,6 +107,7 @@ void StereoFusionOptions::Print() const {
   PrintHeading2("StereoFusion::Options");
   PrintOption(max_image_size);
   PrintOption(min_num_pixels);
+  PrintOption(min_num_pixels_ps);
   PrintOption(max_num_pixels);
   PrintOption(max_traversal_depth);
   PrintOption(max_reproj_error);
@@ -97,7 +120,9 @@ void StereoFusionOptions::Print() const {
 
 bool StereoFusionOptions::Check() const {
   CHECK_OPTION_GE(min_num_pixels, 0);
+  CHECK_OPTION_GE(min_num_pixels_ps, 0);
   CHECK_OPTION_LE(min_num_pixels, max_num_pixels);
+  CHECK_OPTION_LE(min_num_pixels_ps, max_num_pixels);
   CHECK_OPTION_GT(max_traversal_depth, 0);
   CHECK_OPTION_GE(max_reproj_error, 0);
   CHECK_OPTION_GE(max_depth_error, 0);
@@ -184,12 +209,13 @@ void StereoFusion::Run() {
   P_.resize(model.images.size());
   inv_P_.resize(model.images.size());
   inv_R_.resize(model.images.size());
+  has_smooth_normal_.resize(model.images.size());
 
   const auto image_names = ReadTextFileLines(JoinPaths(
       workspace_path_, workspace_options.stereo_folder, "fusion.cfg"));
   for (const auto& image_name : image_names) {
     const int image_idx = model.GetImageIdx(image_name);
-
+    has_smooth_normal_.at(image_idx) = workspace_->HasSmoothNormalMap(image_idx);
     if (!workspace_->HasBitmap(image_idx) ||
         !workspace_->HasDepthMap(image_idx) ||
         !workspace_->HasNormalMap(image_idx)) {
@@ -220,6 +246,7 @@ void StereoFusion::Run() {
     Eigen::Matrix<float, 3, 3, Eigen::RowMajor> K =
         Eigen::Map<const Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(
             image.GetK());
+
     K(0, 0) *= bitmap_scales_.at(image_idx).first;
     K(0, 2) *= bitmap_scales_.at(image_idx).first;
     K(1, 1) *= bitmap_scales_.at(image_idx).second;
@@ -236,7 +263,7 @@ void StereoFusion::Run() {
   }
 
   size_t num_fused_images = 0;
-  for (int image_idx = 0; image_idx >= 0;
+  for (int image_idx = model.GetImageIdx(image_names.front()); image_idx >= 0;
        image_idx = internal::FindNextImage(overlapping_images_, used_images_,
                                            fused_images_, image_idx)) {
     if (IsStopped()) {
@@ -246,9 +273,8 @@ void StereoFusion::Run() {
     Timer timer;
     timer.Start();
 
-    std::cout << StringPrintf("Fusing image [%d/%d]", num_fused_images + 1,
-                              model.images.size())
-              << std::flush;
+    std::cout << StringPrintf("Fusing image [%d/%d] %s PS", num_fused_images + 1, model.images.size(),
+			      (has_smooth_normal_.at(image_idx)?"with":"without")) << std::flush;
 
     const int width = depth_map_sizes_.at(image_idx).first;
     const int height = depth_map_sizes_.at(image_idx).second;
@@ -308,6 +334,8 @@ void StereoFusion::Fuse() {
   fused_point_g_.clear();
   fused_point_b_.clear();
   fused_point_visibility_.clear();
+  fused_point_rdotn_.clear();
+  fused_point_has_smooth_normal_.clear();
 
   while (!fusion_queue_.empty()) {
     const auto data = fusion_queue_.back();
@@ -315,6 +343,7 @@ void StereoFusion::Fuse() {
     const int row = data.row;
     const int col = data.col;
     const int traversal_depth = data.traversal_depth;
+    const bool has_smooth_normal = has_smooth_normal_.at(image_idx);
 
     fusion_queue_.pop_back();
 
@@ -360,6 +389,14 @@ void StereoFusion::Fuse() {
         inv_R_.at(image_idx) * Eigen::Vector3f(normal_map.Get(row, col, 0),
                                                normal_map.Get(row, col, 1),
                                                normal_map.Get(row, col, 2));
+    Eigen::Vector3f smooth_normal(0.f,0.f,0.f);
+    if (has_smooth_normal) {
+        const auto& smooth_normal_map = workspace_->GetSmoothNormalMap(image_idx);
+        smooth_normal =
+            inv_R_.at(image_idx) * Eigen::Vector3f(smooth_normal_map.Get(row, col, 0),
+                                                   smooth_normal_map.Get(row, col, 1),
+                                                   smooth_normal_map.Get(row, col, 2));
+    }
 
     // Check for consistent normal direction with reference normal.
     if (traversal_depth > 0) {
@@ -380,6 +417,11 @@ void StereoFusion::Fuse() {
     workspace_->GetBitmap(image_idx).InterpolateNearestNeighbor(
         col / bitmap_scale.first, row / bitmap_scale.second, &color);
 
+    const auto& T = workspace_->GetModel().images.at(image_idx).GetT();
+    Eigen::Vector3f TVec(static_cast<float>(T[0]), static_cast<float>(T[1]), static_cast<float>(T[2]));
+//    Eigen::Vector3f camPos = -inv_R_.at(image_idx) * TVec;
+    Eigen::Vector3f camDir =  inv_R_.at(image_idx) * Eigen::Vector3f(0.0f,0.0f,-1.f);
+
     // Set the current pixel as visited.
     fused_pixel_mask.Set(row, col, true);
 
@@ -394,6 +436,8 @@ void StereoFusion::Fuse() {
     fused_point_g_.push_back(color.g);
     fused_point_b_.push_back(color.b);
     fused_point_visibility_.insert(image_idx);
+    fused_point_rdotn_.push_back(camDir.normalized().dot(smooth_normal));
+    fused_point_has_smooth_normal_.push_back((has_smooth_normal));
 
     // Remember the first pixel as the reference.
     if (traversal_depth == 0) {
@@ -439,21 +483,50 @@ void StereoFusion::Fuse() {
   fusion_queue_.clear();
 
   const size_t num_pixels = fused_point_x_.size();
-  if (num_pixels >= static_cast<size_t>(options_.min_num_pixels)) {
-    PlyPoint fused_point;
+  const size_t num_smooth_normal_pixels = std::accumulate(fused_point_has_smooth_normal_.begin(), fused_point_has_smooth_normal_.end(), 0);
+  if ((num_pixels               >= static_cast<size_t>(options_.min_num_pixels)) || 
+      (num_smooth_normal_pixels >= static_cast<size_t>(options_.min_num_pixels_ps))) {
 
+    auto weights = fused_point_rdotn_;
+    std::transform(weights.begin(), weights.end(), fused_point_has_smooth_normal_.begin(), weights.begin(),
+		    [](const float& v, const int& i) { return static_cast<float>(i)*1.f/(std::abs(std::acos(v))+0.001f); });
+    PlyPoint fused_point;
     Eigen::Vector3f fused_normal;
-    fused_normal.x() = internal::Median(&fused_point_nx_);
-    fused_normal.y() = internal::Median(&fused_point_ny_);
-    fused_normal.z() = internal::Median(&fused_point_nz_);
+    if (num_smooth_normal_pixels) {
+/*
+      float weights_sum = std::accumulate(weights.begin(), weights.end(), 0.0f);
+      fused_point.x = internal::WeightedAverage(&fused_point_x_, &weights, weights_sum);
+      fused_point.y = internal::WeightedAverage(&fused_point_y_, &weights, weights_sum);
+      fused_point.z = internal::WeightedAverage(&fused_point_z_, &weights, weights_sum);
+
+      fused_normal.x() = internal::WeightedAverage(&fused_point_nx_, &weights, weights_sum);
+      fused_normal.y() = internal::WeightedAverage(&fused_point_ny_, &weights, weights_sum);
+      fused_normal.z() = internal::WeightedAverage(&fused_point_nz_, &weights, weights_sum);
+*/
+      fused_point.x = internal::WeightedMax(&fused_point_x_, &weights);
+      fused_point.y = internal::WeightedMax(&fused_point_y_, &weights);
+      fused_point.z = internal::WeightedMax(&fused_point_z_, &weights);
+
+      fused_normal.x() = internal::WeightedMax(&fused_point_nx_, &weights);
+      fused_normal.y() = internal::WeightedMax(&fused_point_ny_, &weights);
+      fused_normal.z() = internal::WeightedMax(&fused_point_nz_, &weights);
+    } else {
+      fused_point.x = internal::Median(&fused_point_x_);
+      fused_point.y = internal::Median(&fused_point_y_);
+      fused_point.z = internal::Median(&fused_point_z_);
+
+      fused_normal.x() = internal::Median(&fused_point_nx_);
+      fused_normal.y() = internal::Median(&fused_point_ny_);
+      fused_normal.z() = internal::Median(&fused_point_nz_);
+    }
+
     const float fused_normal_norm = fused_normal.norm();
     if (fused_normal_norm < std::numeric_limits<float>::epsilon()) {
       return;
     }
 
-    fused_point.x = internal::Median(&fused_point_x_);
-    fused_point.y = internal::Median(&fused_point_y_);
-    fused_point.z = internal::Median(&fused_point_z_);
+    if (std::isnan(fused_normal_norm))
+      return;
 
     fused_point.nx = fused_normal.x() / fused_normal_norm;
     fused_point.ny = fused_normal.y() / fused_normal_norm;

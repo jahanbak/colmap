@@ -71,16 +71,19 @@ class Workspace {
   const Bitmap& GetBitmap(const int image_idx);
   const DepthMap& GetDepthMap(const int image_idx);
   const NormalMap& GetNormalMap(const int image_idx);
+  const NormalMap& GetSmoothNormalMap(const int image_idx);
 
   // Get paths to bitmap, depth map, normal map and consistency graph.
   std::string GetBitmapPath(const int image_idx) const;
   std::string GetDepthMapPath(const int image_idx) const;
   std::string GetNormalMapPath(const int image_idx) const;
+  std::string GetSmoothNormalMapPath(const int image_idx) const;
 
   // Return whether bitmap, depth map, normal map, and consistency graph exist.
   bool HasBitmap(const int image_idx) const;
   bool HasDepthMap(const int image_idx) const;
   bool HasNormalMap(const int image_idx) const;
+  bool HasSmoothNormalMap(const int image_idx) const;
 
  private:
   std::string GetFileName(const int image_idx) const;
@@ -95,6 +98,7 @@ class Workspace {
     std::unique_ptr<Bitmap> bitmap;
     std::unique_ptr<DepthMap> depth_map;
     std::unique_ptr<NormalMap> normal_map;
+    std::unique_ptr<NormalMap> smooth_normal_map;
 
    private:
     NON_COPYABLE(CachedImage)
@@ -105,6 +109,7 @@ class Workspace {
   MemoryConstrainedLRUCache<int, CachedImage> cache_;
   std::string depth_map_path_;
   std::string normal_map_path_;
+  std::string smooth_normal_map_path_;
 };
 
 // Import a PMVS workspace into the COLMAP workspace format. Only images in the

@@ -75,6 +75,8 @@ Workspace::Workspace(const Options& options)
       JoinPaths(options_.workspace_path, options_.stereo_folder, "depth_maps"));
   normal_map_path_ = EnsureTrailingSlash(JoinPaths(
       options_.workspace_path, options_.stereo_folder, "normal_maps"));
+  smooth_normal_map_path_ = EnsureTrailingSlash(JoinPaths(
+      options_.workspace_path, options_.stereo_folder, "smooth_normal_maps"));
 }
 
 void Workspace::ClearCache() { cache_.Clear(); }
@@ -129,6 +131,23 @@ const NormalMap& Workspace::GetNormalMap(const int image_idx) {
   return *cached_image.normal_map;
 }
 
+const NormalMap& Workspace::GetSmoothNormalMap(const int image_idx) {
+  auto& cached_image = cache_.GetMutable(image_idx);
+  if (!cached_image.smooth_normal_map) {
+    cached_image.smooth_normal_map.reset(new NormalMap());
+    cached_image.smooth_normal_map->Read(GetSmoothNormalMapPath(image_idx));
+    if (options_.max_image_size > 0) {
+      cached_image.smooth_normal_map->Downsize(
+          model_.images.at(image_idx).GetWidth(),
+          model_.images.at(image_idx).GetHeight());
+    }
+    cached_image.num_bytes += cached_image.smooth_normal_map->GetNumBytes();
+    cache_.UpdateNumBytes(image_idx);
+  }
+  return *cached_image.smooth_normal_map;
+}
+
+
 std::string Workspace::GetBitmapPath(const int image_idx) const {
   return model_.images.at(image_idx).GetPath();
 }
@@ -141,6 +160,10 @@ std::string Workspace::GetNormalMapPath(const int image_idx) const {
   return normal_map_path_ + GetFileName(image_idx);
 }
 
+std::string Workspace::GetSmoothNormalMapPath(const int image_idx) const {
+  return smooth_normal_map_path_ + GetFileName(image_idx);
+}
+
 bool Workspace::HasBitmap(const int image_idx) const {
   return ExistsFile(GetBitmapPath(image_idx));
 }
@@ -151,6 +174,10 @@ bool Workspace::HasDepthMap(const int image_idx) const {
 
 bool Workspace::HasNormalMap(const int image_idx) const {
   return ExistsFile(GetNormalMapPath(image_idx));
+}
+
+bool Workspace::HasSmoothNormalMap(const int image_idx) const {
+  return ExistsFile(GetSmoothNormalMapPath(image_idx));
 }
 
 std::string Workspace::GetFileName(const int image_idx) const {

@@ -59,6 +59,9 @@ struct StereoFusionOptions {
   // Minimum number of fused pixels to produce a point.
   int min_num_pixels = 5;
 
+  // Minimum number of fused pixels from photometric stereo images to produce a point.
+  int min_num_pixels_ps = 2;
+
   // Maximum number of pixels to fuse into a single point.
   int max_num_pixels = 10000;
 
@@ -117,6 +120,7 @@ class StereoFusion : public Thread {
   const float min_cos_normal_error_;
 
   std::unique_ptr<Workspace> workspace_;
+  std::vector<char> has_smooth_normal_;
   std::vector<char> used_images_;
   std::vector<char> fused_images_;
   std::vector<std::vector<int>> overlapping_images_;
@@ -155,6 +159,8 @@ class StereoFusion : public Thread {
   std::vector<uint8_t> fused_point_g_;
   std::vector<uint8_t> fused_point_b_;
   std::unordered_set<int> fused_point_visibility_;
+  std::vector<float> fused_point_rdotn_;
+  std::vector<int> fused_point_has_smooth_normal_;
 };
 
 // Write the visiblity information into a binary file of the following format:
