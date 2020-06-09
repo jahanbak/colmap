@@ -493,7 +493,6 @@ void StereoFusion::Fuse() {
     PlyPoint fused_point;
     Eigen::Vector3f fused_normal;
     if (num_smooth_normal_pixels) {
-/*
       float weights_sum = std::accumulate(weights.begin(), weights.end(), 0.0f);
       fused_point.x = internal::WeightedAverage(&fused_point_x_, &weights, weights_sum);
       fused_point.y = internal::WeightedAverage(&fused_point_y_, &weights, weights_sum);
@@ -502,7 +501,11 @@ void StereoFusion::Fuse() {
       fused_normal.x() = internal::WeightedAverage(&fused_point_nx_, &weights, weights_sum);
       fused_normal.y() = internal::WeightedAverage(&fused_point_ny_, &weights, weights_sum);
       fused_normal.z() = internal::WeightedAverage(&fused_point_nz_, &weights, weights_sum);
-*/
+
+      fused_point.r = TruncateCast<float, uint8_t>(std::round(internal::WeightedAverage(&fused_point_r_, &weights, weights_sum)));
+      fused_point.g = TruncateCast<float, uint8_t>(std::round(internal::WeightedAverage(&fused_point_g_, &weights, weights_sum)));
+      fused_point.b = TruncateCast<float, uint8_t>(std::round(internal::WeightedAverage(&fused_point_b_, &weights, weights_sum)));
+/*
       fused_point.x = internal::WeightedMax(&fused_point_x_, &weights);
       fused_point.y = internal::WeightedMax(&fused_point_y_, &weights);
       fused_point.z = internal::WeightedMax(&fused_point_z_, &weights);
@@ -510,6 +513,7 @@ void StereoFusion::Fuse() {
       fused_normal.x() = internal::WeightedMax(&fused_point_nx_, &weights);
       fused_normal.y() = internal::WeightedMax(&fused_point_ny_, &weights);
       fused_normal.z() = internal::WeightedMax(&fused_point_nz_, &weights);
+*/
     } else {
       fused_point.x = internal::Median(&fused_point_x_);
       fused_point.y = internal::Median(&fused_point_y_);
@@ -518,6 +522,10 @@ void StereoFusion::Fuse() {
       fused_normal.x() = internal::Median(&fused_point_nx_);
       fused_normal.y() = internal::Median(&fused_point_ny_);
       fused_normal.z() = internal::Median(&fused_point_nz_);
+  
+      fused_point.r = TruncateCast<float, uint8_t>(std::round(internal::Median(&fused_point_r_)));
+      fused_point.g = TruncateCast<float, uint8_t>(std::round(internal::Median(&fused_point_g_)));
+      fused_point.b = TruncateCast<float, uint8_t>(std::round(internal::Median(&fused_point_b_)));
     }
 
     const float fused_normal_norm = fused_normal.norm();
@@ -532,16 +540,9 @@ void StereoFusion::Fuse() {
     fused_point.ny = fused_normal.y() / fused_normal_norm;
     fused_point.nz = fused_normal.z() / fused_normal_norm;
 
-    fused_point.r = TruncateCast<float, uint8_t>(
-        std::round(internal::Median(&fused_point_r_)));
-    fused_point.g = TruncateCast<float, uint8_t>(
-        std::round(internal::Median(&fused_point_g_)));
-    fused_point.b = TruncateCast<float, uint8_t>(
-        std::round(internal::Median(&fused_point_b_)));
 
     fused_points_.push_back(fused_point);
-    fused_points_visibility_.emplace_back(fused_point_visibility_.begin(),
-                                          fused_point_visibility_.end());
+    fused_points_visibility_.emplace_back(fused_point_visibility_.begin(), fused_point_visibility_.end());
   }
 }
 
