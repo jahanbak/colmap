@@ -273,8 +273,7 @@ void StereoFusion::Run() {
     Timer timer;
     timer.Start();
 
-    std::cout << StringPrintf("Fusing image [%d/%d] %s PS", num_fused_images + 1, model.images.size(),
-			      (has_smooth_normal_.at(image_idx)?"with":"without")) << std::flush;
+    std::cout << StringPrintf("Fusing %s image [%d/%d]", (has_smooth_normal_.at(image_idx)?"with":"without"), num_fused_images + 1, model.images.size()) << std::flush;
 
     const int width = depth_map_sizes_.at(image_idx).first;
     const int height = depth_map_sizes_.at(image_idx).second;
@@ -493,6 +492,7 @@ void StereoFusion::Fuse() {
     PlyPoint fused_point;
     Eigen::Vector3f fused_normal;
     if (num_smooth_normal_pixels) {
+	    
       float weights_sum = std::accumulate(weights.begin(), weights.end(), 0.0f);
       fused_point.x = internal::WeightedAverage(&fused_point_x_, &weights, weights_sum);
       fused_point.y = internal::WeightedAverage(&fused_point_y_, &weights, weights_sum);
@@ -513,6 +513,10 @@ void StereoFusion::Fuse() {
       fused_normal.x() = internal::WeightedMax(&fused_point_nx_, &weights);
       fused_normal.y() = internal::WeightedMax(&fused_point_ny_, &weights);
       fused_normal.z() = internal::WeightedMax(&fused_point_nz_, &weights);
+
+      fused_point.r = TruncateCast<float, uint8_t>(std::round(internal::WeightedMax(&fused_point_r_, &weights)));
+      fused_point.g = TruncateCast<float, uint8_t>(std::round(internal::WeightedMax(&fused_point_g_, &weights)));
+      fused_point.b = TruncateCast<float, uint8_t>(std::round(internal::WeightedMax(&fused_point_b_, &weights)));
 */
     } else {
       fused_point.x = internal::Median(&fused_point_x_);
